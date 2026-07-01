@@ -1,3 +1,6 @@
+'use client';
+
+import { useMemo, useState } from 'react';
 import { Bell, Bot, CheckCircle2, Clock3, FileText, Search, ShieldCheck, Sparkles, UploadCloud } from 'lucide-react';
 import { entities, importMethods, recentActivities, themes, aiValidationProposals, assistantQuestions, type VigilanceLevel } from '@/lib/governance-data';
 
@@ -14,7 +17,45 @@ const metrics = [
   { label: 'Validation IA', value: '< 1 min', detail: 'Accepter, modifier ou ignorer' },
 ];
 
+const markdownExample = `# Réunion FSM - 28 juin 2026
+
+## Décisions
+- Sécuriser le plan de trésorerie Airbus.
+- Prioriser les recrutements production.
+
+## Actions
+- Claire: mettre à jour le cash forecast pour le 5 juillet.
+- Marc: confirmer le planning fournisseurs.
+
+## Risques
+- Retard de livraison sur le lot A320.
+- Tension de trésorerie à surveiller.`;
+
+function parseMarkdownImport(markdown: string) {
+  const lines = markdown.split(/\r?\n/);
+  const title = lines.find((line) => line.trim().startsWith('#'))?.replace(/^#+\s*/, '').trim() || 'Compte-rendu sans titre';
+  const bullets = lines
+    .map((line) => line.trim())
+    .filter((line) => /^[-*]\s+/.test(line))
+    .map((line) => line.replace(/^[-*]\s+/, ''));
+  const headings = lines
+    .map((line) => line.trim())
+    .filter((line) => /^#{2,6}\s+/.test(line))
+    .map((line) => line.replace(/^#{2,6}\s+/, ''));
+
+  return {
+    title,
+    headings,
+    decisions: bullets.filter((bullet) => /décision|décider|sécuriser|prioriser|valider/i.test(bullet)),
+    actions: bullets.filter((bullet) => /:|pour le|avant le|action|mettre à jour|confirmer/i.test(bullet)),
+    risks: bullets.filter((bullet) => /risque|retard|tension|alerte|surveiller/i.test(bullet)),
+  };
+}
+
 export default function Home() {
+  const [markdownImport, setMarkdownImport] = useState('');
+  const importedReport = useMemo(() => parseMarkdownImport(markdownImport), [markdownImport]);
+  const hasMarkdownImport = markdownImport.trim().length > 0;
   const allSubjects = entities.flatMap((entity) => entity.topSubjects.map((subject) => ({ ...subject, entity: entity.name })));
   const openActions = allSubjects.flatMap((subject) =>
     subject.actions
@@ -169,16 +210,52 @@ export default function Home() {
             <p className="mb-4 text-sm leading-6 text-slate-600">Le compte-rendu Plaud reste la source de vérité. L&apos;application extrait puis propose des liens avec la mémoire existante.</p>
             <ol className="space-y-2">
               {importMethods.map((method, index) => (
-                <li key={method} className="flex items-center gap-3 rounded-2xl border border-slate-100 p-3 text-sm">
+                <li key={method} className={`flex items-center gap-3 rounded-2xl border p-3 text-sm ${method === 'Copier / Coller Markdown' ? 'border-slate-950 bg-slate-50 font-semibold' : 'border-slate-100'}`}>
                   <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-950 text-xs font-semibold text-white">{index + 1}</span>
                   {method}
                 </li>
               ))}
             </ol>
+            <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-semibold">Copier / Coller Markdown</p>
+                  <p className="text-sm text-slate-500">Collez un compte-rendu Markdown pour générer immédiatement une pré-analyse.</p>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-medium transition hover:bg-slate-100"
+                  onClick={() => setMarkdownImport(markdownExample)}
+                >
+                  Charger un exemple
+                </button>
+              </div>
+              <textarea
+                aria-label="Compte-rendu Markdown à importer"
+                className="min-h-48 w-full rounded-2xl border border-slate-200 bg-white p-3 text-sm leading-6 outline-none transition placeholder:text-slate-400 focus:border-slate-950 focus:ring-2 focus:ring-slate-950/10"
+                placeholder="# Réunion...\n\n## Décisions\n- ...\n\n## Actions\n- ..."
+                value={markdownImport}
+                onChange={(event) => setMarkdownImport(event.target.value)}
+              />
+              <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+                <ImportStat label="Décisions" value={hasMarkdownImport ? importedReport.decisions.length : 0} />
+                <ImportStat label="Actions" value={hasMarkdownImport ? importedReport.actions.length : 0} />
+                <ImportStat label="Risques" value={hasMarkdownImport ? importedReport.risks.length : 0} />
+              </div>
+            </div>
           </Panel>
           <Panel title="Validation IA" icon={<CheckCircle2 className="h-5 w-5" />}>
+            {hasMarkdownImport && (
+              <div className="mb-4 rounded-3xl border border-emerald-100 bg-emerald-50 p-4">
+                <p className="text-sm font-semibold text-emerald-900">Compte-rendu Markdown détecté : {importedReport.title}</p>
+                <p className="mt-1 text-sm text-emerald-800">Sections reconnues : {importedReport.headings.length ? importedReport.headings.join(', ') : 'aucune section explicite'}.</p>
+              </div>
+            )}
             <div className="mb-4 grid gap-3 sm:grid-cols-3">
-              {['14 sujets analysés', '12 reconnus', '2 nouveaux proposés'].map((item) => (
+              {(hasMarkdownImport
+                ? [`${importedReport.headings.length} sections analysées`, `${importedReport.actions.length} actions proposées`, `${importedReport.risks.length} risques détectés`]
+                : ['14 sujets analysés', '12 reconnus', '2 nouveaux proposés']
+              ).map((item) => (
                 <div key={item} className="rounded-2xl bg-slate-50 p-3 text-center text-sm font-medium">{item}</div>
               ))}
             </div>
@@ -244,6 +321,15 @@ export default function Home() {
         </section>
       </section>
     </main>
+  );
+}
+
+function ImportStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl bg-white p-3 text-center">
+      <p className="text-2xl font-semibold">{value}</p>
+      <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">{label}</p>
+    </div>
   );
 }
 
