@@ -31,6 +31,52 @@ const markdownExample = `# Réunion FSM - 28 juin 2026
 - Retard de livraison sur le lot A320.
 - Tension de trésorerie à surveiller.`;
 
+type AiValidationProposal = {
+  label: string;
+  entity: string;
+  type: string;
+  action: string;
+};
+
+const subjectKeywords = [
+  { pattern: /trésorerie|cash|financement|budget|marge/i, label: 'Trésorerie court terme', entity: 'FSM', theme: 'Finance' },
+  { pattern: /airbus|client|commercial|prospect|contrat/i, label: 'Client Airbus', entity: 'FSM', theme: 'Commercial' },
+  { pattern: /recrutement|rh|équipe|directeur|production/i, label: 'Recrutement et capacité production', entity: 'Stimy', theme: 'RH' },
+  { pattern: /fournisseur|livraison|retard|planning|qualité|a320/i, label: 'Planning fournisseurs et qualité', entity: 'FSM', theme: 'Opérations' },
+  { pattern: /erp|migration|système|outil/i, label: 'Migration ERP', entity: 'SMTG', theme: 'Organisation' },
+  { pattern: /énergie|energie/i, label: 'Contrat énergie 2027', entity: 'SMTG', theme: 'Finance' },
+];
+
+function buildImportedValidationProposals(report: ReturnType<typeof parseMarkdownImport>): AiValidationProposal[] {
+  const candidates = [...report.decisions, ...report.actions, ...report.risks];
+  const proposals = candidates.map((candidate) => {
+    const match = subjectKeywords.find(({ pattern }) => pattern.test(candidate));
+    const fallbackLabel = candidate.replace(/[.:].*$/, '').trim() || 'Sujet importé';
+
+    return {
+      label: match?.label || fallbackLabel,
+      entity: match?.entity || 'À qualifier',
+      type: match ? 'Sujet reconnu' : 'Nouveau sujet proposé',
+      action: match ? `Rattacher l’extrait importé à ${match.theme}` : 'Créer un sujet depuis le compte-rendu',
+    };
+  });
+
+  const deduplicated = proposals.filter((proposal, index, self) =>
+    self.findIndex((item) => item.label === proposal.label && item.entity === proposal.entity) === index,
+  );
+
+  if (deduplicated.length > 0) {
+    return deduplicated;
+  }
+
+  return report.headings.map((heading) => ({
+    label: heading,
+    entity: 'À qualifier',
+    type: 'Nouveau sujet proposé',
+    action: 'Analyser cette section du compte-rendu',
+  }));
+}
+
 function parseMarkdownImport(markdown: string) {
   const lines = markdown.split(/\r?\n/);
   const title = lines.find((line) => line.trim().startsWith('#'))?.replace(/^#+\s*/, '').trim() || 'Compte-rendu sans titre';
@@ -56,6 +102,7 @@ export default function Home() {
   const [markdownImport, setMarkdownImport] = useState('');
   const importedReport = useMemo(() => parseMarkdownImport(markdownImport), [markdownImport]);
   const hasMarkdownImport = markdownImport.trim().length > 0;
+  const validationProposals = hasMarkdownImport ? buildImportedValidationProposals(importedReport) : aiValidationProposals;
   const allSubjects = entities.flatMap((entity) => entity.topSubjects.map((subject) => ({ ...subject, entity: entity.name })));
   const openActions = allSubjects.flatMap((subject) =>
     subject.actions
@@ -253,14 +300,14 @@ export default function Home() {
             )}
             <div className="mb-4 grid gap-3 sm:grid-cols-3">
               {(hasMarkdownImport
-                ? [`${importedReport.headings.length} sections analysées`, `${importedReport.actions.length} actions proposées`, `${importedReport.risks.length} risques détectés`]
+                ? [`${importedReport.headings.length} sections analysées`, `${validationProposals.length} sujets à valider`, `${importedReport.risks.length} risques détectés`]
                 : ['14 sujets analysés', '12 reconnus', '2 nouveaux proposés']
               ).map((item) => (
                 <div key={item} className="rounded-2xl bg-slate-50 p-3 text-center text-sm font-medium">{item}</div>
               ))}
             </div>
             <div className="space-y-3">
-              {aiValidationProposals.map((proposal) => (
+              {validationProposals.length > 0 ? validationProposals.map((proposal) => (
                 <div key={`${proposal.entity}-${proposal.label}`} className="rounded-2xl border border-slate-100 p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
@@ -274,7 +321,11 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
-              ))}
+              )) : (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                  Aucun sujet à valider pour l’instant. Ajoutez des puces dans les sections Décisions, Actions ou Risques du compte-rendu.
+                </div>
+              )}
             </div>
           </Panel>
         </section>
